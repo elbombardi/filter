@@ -7,9 +7,8 @@
 //
 // The package is an experiment to see how easy it is to write such things
 // in Go. It is easy, but for loops are just as easy and more efficient.
-// 
-// You should not use this package.
 //
+// You should not use this package.
 package filter // import "robpike.io/filter"
 
 import (
@@ -20,13 +19,13 @@ import (
 // input conditions are not satisfied, Apply panics.) It returns a newly
 // allocated slice where each element is the result of calling the function on
 // successive elements of the slice.
-func Apply(slice, function interface{}) interface{} {
+func Apply[T any, R any](slice []T, function func(T) R) []R {
 	return apply(slice, function, false)
 }
 
 // ApplyInPlace is like Apply, but overwrites the slice rather than returning a
 // newly allocated slice.
-func ApplyInPlace(slice, function interface{}) {
+func ApplyInPlace[T any, R any](slice []T, function func(T) R) {
 	apply(slice, function, true)
 }
 
@@ -34,7 +33,7 @@ func ApplyInPlace(slice, function interface{}) {
 // the input conditions are not satisfied, Choose panics.) It returns a newly
 // allocated slice containing only those elements of the input slice that
 // satisfy the function.
-func Choose(slice, function interface{}) interface{} {
+func Choose[T any](slice []T, function func(T) bool) []T {
 	out, _ := chooseOrDrop(slice, function, false, true)
 	return out
 }
@@ -44,7 +43,7 @@ func Choose(slice, function interface{}) interface{} {
 // allocated slice containing only those elements of the input slice that do
 // not satisfy the function, that is, it removes elements that satisfy the
 // function.
-func Drop(slice, function interface{}) interface{} {
+func Drop[T any](slice []T, function func(T) bool) []T {
 	out, _ := chooseOrDrop(slice, function, false, false)
 	return out
 }
@@ -53,7 +52,7 @@ func Drop(slice, function interface{}) interface{} {
 // a newly allocated slice. Since ChooseInPlace must modify the header of the
 // slice to set the new length, it takes as argument a pointer to a slice
 // rather than a slice.
-func ChooseInPlace(pointerToSlice, function interface{}) {
+func ChooseInPlace[T any](pointerToSlice *[]T, function func(T) bool) {
 	chooseOrDropInPlace(pointerToSlice, function, true)
 }
 
@@ -61,118 +60,45 @@ func ChooseInPlace(pointerToSlice, function interface{}) {
 // newly allocated slice. Since DropInPlace must modify the header of the slice
 // to set the new length, it takes as argument a pointer to a slice rather than
 // a slice.
-func DropInPlace(pointerToSlice, function interface{}) {
+func DropInPlace[T any](pointerToSlice *[]T, function func(T) bool) {
 	chooseOrDropInPlace(pointerToSlice, function, false)
 }
 
-func apply(slice, function interface{}, inPlace bool) interface{} {
-	// Special case for strings, very common.
-	if strSlice, ok := slice.([]string); ok {
-		if strFn, ok := function.(func(string) string); ok {
-			r := strSlice
-			if !inPlace {
-				r = make([]string, len(strSlice))
-			}
-			for i, s := range strSlice {
-				r[i] = strFn(s)
-			}
-			return r
-		}
+func apply[T any, R any](slice []T, function func(T) R, inPlace bool) []R {
+	var out []R
+	intype := reflect.TypeOf(slice)
+	outtype := reflect.TypeOf(out)
+	if inPlace && intype == outtype {
+		out = reflect.ValueOf(slice).Interface().([]R)
+	} else {
+		out = make([]R, len(slice))
 	}
-	in := reflect.ValueOf(slice)
-	if in.Kind() != reflect.Slice {
-		panic("apply: not slice")
+	for i, s := range slice {
+		out[i] = function(s)
 	}
-	fn := reflect.ValueOf(function)
-	elemType := in.Type().Elem()
-	if !goodFunc(fn, elemType, nil) {
-		panic("apply: function must be of type func(" + in.Type().Elem().String() + ")  outputElemType")
-	}
-	out := in
-	if !inPlace {
-		out = reflect.MakeSlice(reflect.SliceOf(fn.Type().Out(0)), in.Len(), in.Len())
-	}
-	var ins [1]reflect.Value // Outside the loop to avoid one allocation.
-	for i := 0; i < in.Len(); i++ {
-		ins[0] = in.Index(i)
-		out.Index(i).Set(fn.Call(ins[:])[0])
-	}
-	return out.Interface()
+	return out
 }
 
-func chooseOrDropInPlace(slice, function interface{}, truth bool) {
+func chooseOrDropInPlace[T any](slice *[]T, function func(T) bool, truth bool) {
 	inp := reflect.ValueOf(slice)
 	if inp.Kind() != reflect.Ptr {
 		panic("choose/drop: not pointer to slice")
 	}
-	_, n := chooseOrDrop(inp.Elem().Interface(), function, true, truth)
+	_, n := chooseOrDrop(*slice, function, true, truth)
 	inp.Elem().SetLen(n)
 }
 
 var boolType = reflect.ValueOf(true).Type()
 
-func chooseOrDrop(slice, function interface{}, inPlace, truth bool) (interface{}, int) {
-	// Special case for strings, very common.
-	if strSlice, ok := slice.([]string); ok {
-		if strFn, ok := function.(func(string) bool); ok {
-			var r []string
-			if inPlace {
-				r = strSlice[:0]
-			}
-			for _, s := range strSlice {
-				if strFn(s) == truth {
-					r = append(r, s)
-				}
-			}
-			return r, len(r)
+func chooseOrDrop[T any](slice []T, function func(T) bool, inPlace, truth bool) ([]T, int) {
+	var r []T
+	if inPlace {
+		r = slice[:0]
+	}
+	for _, s := range slice {
+		if function(s) == truth {
+			r = append(r, s)
 		}
 	}
-	in := reflect.ValueOf(slice)
-	if in.Kind() != reflect.Slice {
-		panic("choose/drop: not slice")
-	}
-	fn := reflect.ValueOf(function)
-	elemType := in.Type().Elem()
-	if !goodFunc(fn, elemType, boolType) {
-		panic("choose/drop: function must be of type func(" + elemType.String() + ") bool")
-	}
-	var which []int
-	var ins [1]reflect.Value // Outside the loop to avoid one allocation.
-	for i := 0; i < in.Len(); i++ {
-		ins[0] = in.Index(i)
-		if fn.Call(ins[:])[0].Bool() == truth {
-			which = append(which, i)
-		}
-	}
-	out := in
-	if !inPlace {
-		out = reflect.MakeSlice(in.Type(), len(which), len(which))
-	}
-	for i := range which {
-		out.Index(i).Set(in.Index(which[i]))
-	}
-	return out.Interface(), len(which)
-}
-
-// goodFunc verifies that the function satisfies the signature, represented as a slice of types.
-// The last type is the single result type; the others are the input types.
-// A final type of nil means any result type is accepted.
-func goodFunc(fn reflect.Value, types ...reflect.Type) bool {
-	if fn.Kind() != reflect.Func {
-		return false
-	}
-	// Last type is return, the rest are ins.
-	if fn.Type().NumIn() != len(types)-1 || fn.Type().NumOut() != 1 {
-		return false
-	}
-	for i := 0; i < len(types)-1; i++ {
-		if fn.Type().In(i) != types[i] {
-			return false
-		}
-	}
-	outType := types[len(types)-1]
-	if outType != nil && fn.Type().Out(0) != outType {
-		return false
-	}
-	return true
+	return r, len(r)
 }
