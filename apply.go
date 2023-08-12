@@ -29,8 +29,7 @@ func ApplyInPlace[T any, R any](slice []T, function func(T) R) {
 	apply(slice, function, true)
 }
 
-// Choose takes a slice of type []T and a function of type func(T) bool. (If
-// the input conditions are not satisfied, Choose panics.) It returns a newly
+// Choose takes a slice of type []T and a function of type func(T) bool. It returns a newly
 // allocated slice containing only those elements of the input slice that
 // satisfy the function.
 func Choose[T any](slice []T, function func(T) bool) []T {
@@ -38,8 +37,7 @@ func Choose[T any](slice []T, function func(T) bool) []T {
 	return out
 }
 
-// Drop takes a slice of type []T and a function of type func(T) bool. (If the
-// input conditions are not satisfied, Drop panics.) It returns a newly
+// Drop takes a slice of type []T and a function of type func(T) bool. It returns a newly
 // allocated slice containing only those elements of the input slice that do
 // not satisfy the function, that is, it removes elements that satisfy the
 // function.
@@ -87,8 +85,6 @@ func chooseOrDropInPlace[T any](slice *[]T, function func(T) bool, truth bool) {
 	_, n := chooseOrDrop(*slice, function, true, truth)
 	inp.Elem().SetLen(n)
 }
-
-var boolType = reflect.ValueOf(true).Type()
 
 func chooseOrDrop[T any](slice []T, function func(T) bool, inPlace, truth bool) ([]T, int) {
 	var r []T
